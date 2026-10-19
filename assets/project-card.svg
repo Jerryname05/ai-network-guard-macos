@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-label="AI网络守护项目视觉图">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset="1" stop-color="#122844"/></linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff4057"/><stop offset="1" stop-color="#b50724"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-opacity=".35"/></filter>
+  </defs>
+  <rect width="1200" height="520" rx="34" fill="url(#bg)"/>
+  <circle cx="1060" cy="95" r="190" fill="#00d7d7" opacity=".06"/><circle cx="980" cy="500" r="260" fill="#ff2945" opacity=".05"/>
+  <g transform="translate(90 92)" filter="url(#shadow)">
+    <circle cx="155" cy="155" r="145" fill="#050a10" stroke="#35e2dc" stroke-width="10"/>
+    <circle cx="155" cy="155" r="121" fill="url(#red)" stroke="#131923" stroke-width="8"/>
+    <g fill="none" stroke="#171a20" stroke-width="4" opacity=".9">
+      <path d="M155 34v242M34 155h242M69 69l172 172M241 69L69 241"/>
+      <circle cx="155" cy="155" r="35"/><circle cx="155" cy="155" r="72"/><circle cx="155" cy="155" r="105"/>
+    </g>
+    <path d="M57 112Q102 116 143 153Q123 205 70 194Q48 153 57 112Z" fill="white" stroke="#050a10" stroke-width="11"/>
+    <path d="M253 112Q208 116 167 153Q187 205 240 194Q262 153 253 112Z" fill="white" stroke="#050a10" stroke-width="11"/>
+  </g>
+  <g font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif">
+    <text x="430" y="135" fill="#7cf6ef" font-size="24" font-weight="700" letter-spacing="4">MACOS 桌面安全小组件</text>
+    <text x="430" y="220" fill="white" font-size="66" font-weight="800">AI网络守护</text>
+    <text x="430" y="278" fill="#b9c8dc" font-size="27">检测代理状态 · 识别出口地区 · 异常自动关闭 AI 客户端</text>
+    <g transform="translate(430 325)">
+      <rect width="196" height="54" rx="27" fill="#102f39" stroke="#35e2dc"/><circle cx="30" cy="27" r="8" fill="#35e2dc"/><text x="52" y="36" fill="#e9ffff" font-size="21" font-weight="600">5 秒检测代理</text>
+      <rect x="214" width="202" height="54" rx="27" fill="#321726" stroke="#ff5268"/><text x="243" y="36" fill="#fff0f3" font-size="21" font-weight="600">异常自动保护</text>
+      <rect x="434" width="205" height="54" rx="27" fill="#172640" stroke="#7a9cff"/><text x="463" y="36" fill="#eef2ff" font-size="21" font-weight="600">本地运行开源</text>
+    </g>
+    <text x="430" y="444" fill="#71839b" font-size="19">Claude · Gemini · Codex</text>
+    <text x="1045" y="445" text-anchor="end" fill="#ffd66b" font-size="22" font-weight="700">⭐ Star 支持项目</text>
+  </g>
+</svg>

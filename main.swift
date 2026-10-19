@@ -92,7 +92,9 @@ final class GuardApp: NSObject, NSApplicationDelegate {
     var failures = 0
     var chinaHits = 0
     var armed = false
-    var blocked = false
+    var networkBlocked = false
+    var rocketMissingHits = 0
+    var blocked: Bool { networkBlocked || rocketMissingHits >= 2 }
     var lastGood: Date?
     var lastAttempt = Date.distantPast
     var lastAction = Date.distantPast
@@ -130,7 +132,7 @@ final class GuardApp: NSObject, NSApplicationDelegate {
         for (name, action) in [("打开小火箭", #selector(openRocket)), ("Ping0 详情", #selector(openPing)), ("立即检测", #selector(check))] {
             row.addArrangedSubview(NSButton(title: name, target: self, action: action))
         }
-        let note = NSTextField(wrappingLabelWithString: "中国大陆 IP 连续 2 次命中 → 异常\n查询连续失败 2 次 → 状态未知，按保守策略处理\n港澳台不纳入中国大陆规则。纯净度请查看 Ping0。\n仅检查本组件出口，不保证客户端出口一致；不是断网开关。")
+        let note = NSTextField(wrappingLabelWithString: "小火箭连续 2 次未运行 → 异常\n中国大陆 IP 连续 2 次命中 → 异常\n查询连续失败 2 次 → 状态未知，按保守策略处理\n港澳台不纳入中国大陆规则。纯净度请查看 Ping0。\n仅检查本组件出口，不保证客户端出口一致；不是断网开关。")
         note.font = .systemFont(ofSize: 11); note.textColor = .secondaryLabelColor
         for view in [title, state, ip, region, detail, targets, mode, row, note] { stack.addArrangedSubview(view); view.widthAnchor.constraint(lessThanOrEqualToConstant: 376).isActive = true }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -156,10 +158,12 @@ final class GuardApp: NSObject, NSApplicationDelegate {
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
         orbWindow.setFrameOrigin(NSPoint(x: screen.maxX-110, y: screen.midY))
         orbWindow.orderFrontRegardless()
+        assessRocket()
         check()
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.updateTargets()
+            self.assessRocket()
             if self.blocked && self.armed { self.closeTargets() }
             if Date().timeIntervalSince(self.lastAttempt) >= 30 { self.check() }
         }
@@ -197,6 +201,24 @@ final class GuardApp: NSObject, NSApplicationDelegate {
         let names = apps().compactMap(\.localizedName)
         targets.stringValue = "正在运行：" + (names.isEmpty ? "未发现目标客户端" : names.joined(separator: "、"))
     }
+    func rocketRunning() -> Bool {
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.liguangming.Shadowrocket").contains { !$0.isTerminated }
+    }
+    func assessRocket() {
+        if rocketRunning() {
+            rocketMissingHits = 0
+        } else {
+            rocketMissingHits = min(rocketMissingHits + 1, 2)
+            state.stringValue = "⚠ 小火箭未打开（\(rocketMissingHits)/2）"
+            state.textColor = .systemRed
+            item.button?.title = rocketMissingHits >= 2 ? "⚠ AI" : "◉ AI"
+            orb.tint = rocketMissingHits >= 2 ? .systemRed : .systemOrange
+            if rocketMissingHits >= 2 {
+                if armed { closeTargets() }
+                else if Date().timeIntervalSince(lastAction) > 60 { lastAction = Date(); show(); NSSound.beep() }
+            }
+        }
+    }
     @objc func check() {
         guard !busy else { return }
         busy = true; lastAttempt = Date(); updateTargets()
@@ -217,22 +239,26 @@ final class GuardApp: NSObject, NSApplicationDelegate {
                     self.ip.stringValue = "出口 IP · " + lines[0]
                     self.region.stringValue = "地区 · " + lines[1]
                     if mainland(lines[1]) {
-                        self.chinaHits += 1; self.blocked = self.chinaHits >= 2
+                        self.chinaHits += 1; self.networkBlocked = self.chinaHits >= 2
                         self.state.stringValue = "⚠ 中国大陆出口（\(self.chinaHits)/2）"
                         self.state.textColor = .systemRed
                     } else {
-                        self.chinaHits = 0; self.blocked = false
+                        self.chinaHits = 0; self.networkBlocked = false
                         self.state.stringValue = "● 未命中中国大陆规则 · 纯净度未验证"
                         self.state.textColor = .systemTeal
                     }
                 } else {
-                    self.chinaHits = 0; self.failures += 1; self.blocked = self.failures >= 2
+                    self.chinaHits = 0; self.failures += 1; self.networkBlocked = self.failures >= 2
                     self.state.stringValue = "⚠ 检测失败 · 网络状态未知（\(self.failures)/2）"
                     self.state.textColor = .systemOrange
                     self.ip.stringValue = "出口 IP · 未知"
                     self.region.stringValue = "地区 · 未知（未使用旧结果放行）"
                 }
                 self.detail.stringValue = "\(time) 检测 · 每 30 秒更新 · " + (self.armed ? "自动关闭已开启" : "仅提醒，不会关闭应用")
+                if !self.rocketRunning() {
+                    self.state.stringValue = "⚠ 小火箭未打开（\(self.rocketMissingHits)/2）"
+                    self.state.textColor = .systemRed
+                }
                 self.item.button?.title = self.blocked ? "⚠ AI" : "◉ AI"
                 self.orb.tint = self.blocked ? .systemRed : ((self.failures > 0 || self.chinaHits > 0) ? .systemOrange : .systemTeal)
                 if self.blocked {
