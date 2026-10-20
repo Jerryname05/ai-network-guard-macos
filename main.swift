@@ -10,10 +10,21 @@ func validIP(_ s: String) -> Bool {
     var v4 = in_addr(); var v6 = in6_addr()
     return s.withCString { inet_pton(AF_INET, $0, &v4) == 1 || inet_pton(AF_INET6, $0, &v6) == 1 }
 }
+func parseRisk(_ html: String) -> (Int, String)? {
+    let pattern = #"riskitem\s+riskcurrent[\s\S]{0,600}?class="value">\s*(\d+)%\s*</span>\s*<span class="lab">\s*([^<]+)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern),
+          let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+          let valueRange = Range(match.range(at: 1), in: html),
+          let labelRange = Range(match.range(at: 2), in: html),
+          let value = Int(html[valueRange]) else { return nil }
+    return (value, String(html[labelRange]).trimmingCharacters(in: .whitespacesAndNewlines))
+}
 if CommandLine.arguments.contains("--test") {
     assert(mainland("中国 广东 深圳")); assert(!mainland("中国 香港"))
     assert(!mainland("美国 弗吉尼亚州 阿什本")); assert(!mainland("中国 台湾"))
     assert(validIP("65.195.105.59")); assert(!validIP("<html>")); assert(validIP("2001:db8::1"))
+    let riskFixture = #"<div class="riskitem riskcurrent" style="background:green"><span class="value">6%</span><span class="lab"> 极度纯净</span></div>"#
+    assert(parseRisk(riskFixture)?.0 == 6); assert(parseRisk(riskFixture)?.1 == "极度纯净")
     print("PASS: 地区规则及 IPv4/IPv6 格式检查")
     exit(0)
 }
@@ -89,6 +100,8 @@ final class GuardApp: NSObject, NSApplicationDelegate {
     var item: NSStatusItem!
     var timer: Timer?
     var busy = false
+    var riskBusy = false
+    var riskIP = ""
     var failures = 0
     var chinaHits = 0
     var armed = false
@@ -101,6 +114,7 @@ final class GuardApp: NSObject, NSApplicationDelegate {
     let state = NSTextField(labelWithString: "请先打开小火箭，再使用 AI 客户端")
     let ip = NSTextField(labelWithString: "出口 IP · 等待检测")
     let region = NSTextField(wrappingLabelWithString: "地区 · 等待检测")
+    let purity = NSTextField(wrappingLabelWithString: "纯净度 · 等待 Ping0 检测")
     let detail = NSTextField(wrappingLabelWithString: "启动检测中…")
     let targets = NSTextField(wrappingLabelWithString: "")
     let mode = NSButton(checkboxWithTitle: "异常时自动关闭三个客户端", target: nil, action: nil)
@@ -110,7 +124,7 @@ final class GuardApp: NSObject, NSApplicationDelegate {
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 405), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 455), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "AI 网络守护"
         window.isReleasedWhenClosed = false
         window.level = .floating
@@ -122,6 +136,7 @@ final class GuardApp: NSObject, NSApplicationDelegate {
         let title = NSTextField(labelWithString: "◉  AI 网络守护")
         title.font = .systemFont(ofSize: 23, weight: .semibold)
         ip.font = .monospacedSystemFont(ofSize: 17, weight: .medium)
+        purity.font = .systemFont(ofSize: 14, weight: .semibold)
         state.font = .systemFont(ofSize: 13, weight: .medium)
         detail.font = .systemFont(ofSize: 12); detail.textColor = .secondaryLabelColor
         targets.font = .systemFont(ofSize: 12); targets.textColor = .secondaryLabelColor
@@ -134,7 +149,7 @@ final class GuardApp: NSObject, NSApplicationDelegate {
         }
         let note = NSTextField(wrappingLabelWithString: "小火箭连续 2 次未运行 → 异常\n中国大陆 IP 连续 2 次命中 → 异常\n查询连续失败 2 次 → 状态未知，按保守策略处理\n港澳台不纳入中国大陆规则。纯净度请查看 Ping0。\n仅检查本组件出口，不保证客户端出口一致；不是断网开关。")
         note.font = .systemFont(ofSize: 11); note.textColor = .secondaryLabelColor
-        for view in [title, state, ip, region, detail, targets, mode, row, note] { stack.addArrangedSubview(view); view.widthAnchor.constraint(lessThanOrEqualToConstant: 376).isActive = true }
+        for view in [title, state, ip, region, purity, detail, targets, mode, row, note] { stack.addArrangedSubview(view); view.widthAnchor.constraint(lessThanOrEqualToConstant: 376).isActive = true }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "◉ AI"
         let menu = NSMenu()
@@ -238,6 +253,7 @@ final class GuardApp: NSObject, NSApplicationDelegate {
                     self.failures = 0; self.lastGood = Date()
                     self.ip.stringValue = "出口 IP · " + lines[0]
                     self.region.stringValue = "地区 · " + lines[1]
+                    if self.riskIP != lines[0] { self.checkPurity(for: lines[0]) }
                     if mainland(lines[1]) {
                         self.chinaHits += 1; self.networkBlocked = self.chinaHits >= 2
                         self.state.stringValue = "⚠ 中国大陆出口（\(self.chinaHits)/2）"
@@ -264,6 +280,35 @@ final class GuardApp: NSObject, NSApplicationDelegate {
                 if self.blocked {
                     if self.armed { self.closeTargets() }
                     else if Date().timeIntervalSince(self.lastAction) > 60 { self.lastAction = Date(); self.show(); NSSound.beep() }
+                }
+            }
+            session.finishTasksAndInvalidate()
+        }.resume()
+    }
+    func checkPurity(for currentIP: String) {
+        guard !riskBusy else { return }
+        riskBusy = true
+        var request = URLRequest(url: URL(string: "https://ping0.cc/")!, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X) AI-Network-Guard/0.3", forHTTPHeaderField: "User-Agent")
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForResource = 20
+        let session = URLSession(configuration: config)
+        session.dataTask(with: request) { data, response, error in
+            let html = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let risk = parseRisk(html)
+            DispatchQueue.main.async {
+                self.riskBusy = false
+                if error == nil, (response as? HTTPURLResponse)?.statusCode == 200, let risk {
+                    self.riskIP = currentIP
+                    self.purity.stringValue = "纯净度 · \(risk.0)% \(risk.1)（Ping0）"
+                    self.purity.textColor = risk.0 < 40 ? .systemTeal : (risk.0 < 70 ? .systemOrange : .systemRed)
+                    if !self.blocked && self.rocketRunning() {
+                        self.state.stringValue = risk.0 < 40 ? "● 网络出口正常 · 纯净度已获取" : "● 网络出口正常 · 请留意风控值"
+                        self.state.textColor = risk.0 < 40 ? .systemTeal : .systemOrange
+                    }
+                } else {
+                    self.purity.stringValue = "纯净度 · 暂时无法读取，可点“Ping0 详情”"
+                    self.purity.textColor = .secondaryLabelColor
                 }
             }
             session.finishTasksAndInvalidate()
